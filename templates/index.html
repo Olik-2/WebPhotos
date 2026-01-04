@@ -1,66 +1,87 @@
 <!DOCTYPE html>
-<html>
+<html lang="pl">
 <head>
+<meta charset="UTF-8">
+<title>WebPhotos</title>
 <style>
-#bar {
-  width: 100%;
-  background: #ddd;
+body {
+    font-family: Arial;
+    background: #111;
+    color: #eee;
+    padding: 30px;
 }
-#bar div {
-  width: 0%;
-  height: 20px;
-  background: #4caf50;
+input, button {
+    padding: 10px;
+    margin: 5px 0;
+    width: 100%;
+}
+button {
+    background: #3fa9f5;
+    border: none;
+    cursor: pointer;
+}
+#logs {
+    margin-top: 20px;
+    background: #000;
+    padding: 15px;
+    height: 300px;
+    overflow-y: auto;
+    white-space: pre-line;
+}
+.hidden {
+    display: none;
 }
 </style>
 </head>
 <body>
 
-<h3>WebImages</h3>
+<h2>WebPhotos</h2>
 
-<input id="url" placeholder="URL"><br><br>
-<input id="folder" placeholder="Nazwa folderu"><br><br>
+<input id="url" placeholder="Adres strony">
+<input id="folder" placeholder="Nazwa folderu">
 <button onclick="start()">START</button>
 
-<div id="bar"><div></div></div>
+<button id="download" class="hidden">Pobierz ZIP</button>
 
-<pre id="log"></pre>
+<div id="logs"></div>
 
 <script>
-let job;
+let jobId = null;
+let timer = null;
 
 function start() {
-  fetch("/start", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      url: url.value,
-      folder: folder.value
-    })
-  })
-  .then(r => r.json())
-  .then(d => {
-    job = d.job_id;
-    poll();
-  });
-}
+    document.getElementById("logs").textContent = "";
+    document.getElementById("download").classList.add("hidden");
 
-function poll() {
-  fetch("/status/" + job)
+    fetch("/start", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            url: document.getElementById("url").value,
+            folder: document.getElementById("folder").value
+        })
+    })
     .then(r => r.json())
     .then(d => {
-      log.textContent = d.logs.join("\n");
-      document.querySelector("#bar div").style.width = d.progress + "%";
+        jobId = d.job_id;
+        timer = setInterval(checkStatus, 1500);
+    });
+}
 
-      if (d.error) {
-        log.textContent += "\n\n❌ BŁĄD!";
-        return;
-      }
+function checkStatus() {
+    fetch("/status/" + jobId)
+    .then(r => r.json())
+    .then(d => {
+        document.getElementById("logs").textContent =
+            d.logs.join("\n");
 
-      if (!d.done) {
-        setTimeout(poll, 2000);
-      } else {
-        log.innerHTML += "\n\n<a href='/download/" + job + "'>POBIERZ ZIP</a>";
-      }
+        if (d.done) {
+            clearInterval(timer);
+            document.getElementById("download").classList.remove("hidden");
+            document.getElementById("download").onclick = () => {
+                window.location = "/download/" + jobId;
+            };
+        }
     });
 }
 </script>
