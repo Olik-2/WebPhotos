@@ -231,12 +231,15 @@ def download(job_id):
     return send_file(job["zip"], as_attachment=True)
 
 
+from flask import render_template
+
 @app.route("/")
 def index():
-    return "Backend działa"
+    return render_template("index.html")
 
 
 # ================= START =================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
