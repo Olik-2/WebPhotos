@@ -26,13 +26,11 @@ DOWNLOADS.mkdir(exist_ok=True)
 
 jobs = {}
 
-
 # ======================= STRONA =======================
 
 @app.route("/")
 def index():
     return render_template("index.html")
-
 
 # ======================= API =======================
 
@@ -45,7 +43,7 @@ def start():
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "log": "Rozpoczynam pracę",
-        "sublog": "",
+        "errors": [],           # <<< NIEZALEŻNY LOG BŁĘDÓW
         "progress": 0,
         "done": False,
         "zip": None,
@@ -60,17 +58,13 @@ def start():
 
     return jsonify({"job_id": job_id})
 
-
 @app.route("/status/<job_id>")
 def status(job_id):
     return jsonify(jobs.get(job_id, {}))
 
-
 @app.route("/download/<job_id>")
 def download(job_id):
-    zip_path = jobs[job_id]["zip"]
-    return send_file(zip_path, as_attachment=True)
-
+    return send_file(jobs[job_id]["zip"], as_attachment=True)
 
 # ======================= LOGIKA =======================
 
@@ -81,8 +75,8 @@ def worker(job_id, URL, FOLDER):
             if progress is not None:
                 jobs[job_id]["progress"] = progress
 
-        def set_sublog(msg):
-            jobs[job_id]["sublog"] = msg
+        def add_error(msg):
+            jobs[job_id]["errors"].append(msg)
 
         set_log("Uruchamiam Chrome", 5)
 
@@ -104,12 +98,11 @@ def worker(job_id, URL, FOLDER):
         # FILTER
         try:
             set_log("Klikam Filter", 20)
-            filter_btn = wait.until(
+            wait.until(
                 EC.element_to_be_clickable(
                     (By.XPATH, "//button[.//text()[contains(., 'Filter')]]")
                 )
-            )
-            filter_btn.click()
+            ).click()
             time.sleep(2)
         except:
             pass
@@ -117,12 +110,12 @@ def worker(job_id, URL, FOLDER):
         # IMAGES
         try:
             set_log("Klikam Images", 30)
-            images_btn = wait.until(
+            btn = wait.until(
                 EC.element_to_be_clickable(
                     (By.XPATH, "//*[contains(text(),'Images')]")
                 )
             )
-            driver.execute_script("arguments[0].click();", images_btn)
+            driver.execute_script("arguments[0].click();", btn)
             time.sleep(2)
         except:
             pass
@@ -156,18 +149,18 @@ def worker(job_id, URL, FOLDER):
 
         total = len(urls)
         downloaded = 0
-        set_log(f"Pobieram obrazy {downloaded}/{total}", 65)
+        set_log(f"Pobieram obrazy 0/{total}", 65)
 
         for i, img_url in enumerate(sorted(urls), 1):
             try:
                 r = requests.get(img_url, timeout=30)
 
                 if r.status_code != 200:
-                    set_sublog(f"⚠ Pominięto obraz {i}/{total} (status {r.status_code})")
+                    add_error(f"⚠ [{i}/{total}] HTTP {r.status_code}")
                     continue
 
                 if len(r.content) < 500:
-                    set_sublog(f"⚠ Pominięto obraz {i}/{total} (plik uszkodzony / za mały)")
+                    add_error(f"⚠ [{i}/{total}] Uszkodzony / za mały")
                     continue
 
                 ext = img_url.split(".")[-1].split("?")[0].lower()
@@ -183,9 +176,8 @@ def worker(job_id, URL, FOLDER):
                     65 + int(25 * downloaded / total)
                 )
 
-            except Exception:
-                set_sublog(f"⚠ Błąd pobierania obrazu {i}/{total}")
-                continue
+            except Exception as e:
+                add_error(f"⚠ [{i}/{total}] Exception")
 
         set_log("Tworzę ZIP", 95)
         zip_path = DOWNLOADS / f"{FOLDER}.zip"
@@ -201,7 +193,6 @@ def worker(job_id, URL, FOLDER):
     except Exception:
         jobs[job_id]["error"] = True
         jobs[job_id]["log"] = "BŁĄD!"
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
