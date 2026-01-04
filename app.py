@@ -1,14 +1,13 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-import threading
-import time
+import os
 import re
-import requests
+import time
+import zipfile
+import uuid
 from pathlib import Path
 from urllib.parse import urljoin
-import zipfile
-import os
-import sys
+
+import requests
+from flask import Flask, render_template, request, send_file, jsonify
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -18,95 +17,60 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from bs4 import BeautifulSoup
 
+app = Flask(__name__)
 
-# ================= POMOCNICZE =================
+JOBS = {}  # job_id -> log list
 
-def open_folder(path: Path):
+
+def log(job_id, msg):
+    JOBS[job_id].append(msg)
+    print(f"[{job_id}] {msg}")
+
+
+def run_job(job_id, url, folder_name):
     try:
-        if sys.platform.startswith("win"):
-            os.startfile(path)
-        elif sys.platform.startswith("darwin"):
-            os.system(f'open "{path}"')
-        else:
-            os.system(f'xdg-open "{path}"')
-    except Exception:
-        pass
+        JOBS[job_id] = []
+        log(job_id, "➡ Start Selenium")
 
+        base_dir = Path("/tmp") / job_id
+        img_dir = base_dir / folder_name
+        img_dir.mkdir(parents=True, exist_ok=True)
 
-# ================= GUI =================
-
-def log(msg):
-    log_box.insert(tk.END, msg + "\n")
-    log_box.see(tk.END)
-    root.update_idletasks()
-
-
-def start_job():
-    url = url_entry.get().strip()
-    folder_name = folder_entry.get().strip()
-
-    if not url or not folder_name:
-        messagebox.showerror("Błąd", "Podaj URL i nazwę folderu")
-        return
-
-    log_box.delete("1.0", tk.END)
-
-    threading.Thread(
-        target=run_selenium,
-        args=(url, folder_name),
-        daemon=True
-    ).start()
-
-
-# ================= LOGIKA =================
-
-def run_selenium(URL, FOLDER_NAME):
-    try:
-        log("➡ Start Selenium")
-
-        # Folder docelowy
-        IMG_DIR = Path.home() / "Downloads" / FOLDER_NAME
-        IMG_DIR.mkdir(parents=True, exist_ok=True)
-
-        log(f"📂 Folder docelowy: {IMG_DIR}")
-
-        # Selenium
         options = Options()
         options.add_argument("--headless=new")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
 
         driver = webdriver.Chrome(options=options)
         wait = WebDriverWait(driver, 30)
 
-        driver.get(URL)
-        log("✔ Strona otwarta")
+        driver.get(url)
+        log(job_id, "✔ Strona otwarta")
 
         # FILTER (jeśli istnieje)
         try:
-            filter_button = wait.until(
+            filter_btn = wait.until(
                 EC.element_to_be_clickable(
                     (By.XPATH, "//button[.//text()[contains(., 'Filter')]]")
                 )
             )
-            filter_button.click()
-            log("✔ Kliknięto Filter")
+            filter_btn.click()
             time.sleep(1)
-        except Exception:
-            log("ℹ Brak przycisku Filter — pomijam")
+            log(job_id, "✔ Kliknięto Filter")
+        except:
+            log(job_id, "ℹ Brak Filter – pominięto")
 
         # IMAGES
-        images_element = wait.until(
+        images_btn = wait.until(
             EC.presence_of_element_located(
                 (By.XPATH, "//*[contains(text(),'Images')]")
             )
         )
-        driver.execute_script("arguments[0].click();", images_element)
-        log("✔ Kliknięto Images")
+        driver.execute_script("arguments[0].click();", images_btn)
         time.sleep(2)
+        log(job_id, "✔ Kliknięto Images")
 
         # SCROLL
-        log("⬇ Scrollowanie strony")
         for _ in range(12):
             driver.execute_script(
                 "window.scrollTo(0, document.body.scrollHeight);"
@@ -116,33 +80,29 @@ def run_selenium(URL, FOLDER_NAME):
         html = driver.page_source
         driver.quit()
 
-        # ===== USUWANIE cdn-cgi/image/width=... =====
-        REMOVE_PATTERN = r"https://cdn\.ourdream\.ai/cdn-cgi/image/width=\d+/"
-        html = re.sub(REMOVE_PATTERN, "", html)
+        # USUWANIE CDN
+        html = re.sub(
+            r"https://cdn\.ourdream\.ai/cdn-cgi/image/width=\d+/",
+            "",
+            html
+        )
 
-        log("✔ HTML oczyszczony")
-
-        # ===== PARSOWANIE =====
         soup = BeautifulSoup(html, "html.parser")
 
         image_urls = set()
 
         for img in soup.find_all("img"):
             if img.get("data-src"):
-                image_urls.add(urljoin(URL, img["data-src"]))
-
+                image_urls.add(urljoin(url, img["data-src"]))
             if img.get("src") and not img["src"].startswith("data:"):
-                image_urls.add(urljoin(URL, img["src"]))
-
+                image_urls.add(urljoin(url, img["src"]))
             if img.get("srcset"):
                 largest = img["srcset"].split(",")[-1].split()[0]
-                image_urls.add(urljoin(URL, largest))
+                image_urls.add(urljoin(url, largest))
 
-        log(f"➡ Znaleziono {len(image_urls)} obrazów")
+        log(job_id, f"➡ Znaleziono {len(image_urls)} obrazów")
 
-        # ===== POBIERANIE =====
         downloaded = 0
-
         for i, img_url in enumerate(sorted(image_urls), 1):
             try:
                 r = requests.get(img_url, timeout=20)
@@ -153,62 +113,55 @@ def run_selenium(URL, FOLDER_NAME):
                 if ext not in ("jpg", "jpeg", "png", "webp"):
                     ext = "jpg"
 
-                name = f"img_{i}.{ext}"
-                with open(IMG_DIR / name, "wb") as f:
+                with open(img_dir / f"img_{i}.{ext}", "wb") as f:
                     f.write(r.content)
 
                 downloaded += 1
-                log(f"✔ Pobrano {downloaded}: {name}")
-
-            except Exception:
+                log(job_id, f"Pobrano {downloaded}")
+            except:
                 pass
 
-        # ===== ZIP =====
-        zip_path = IMG_DIR.with_suffix(".zip")
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for file in IMG_DIR.iterdir():
+        # ZIP
+        zip_path = base_dir / "images.zip"
+        with zipfile.ZipFile(zip_path, "w") as zipf:
+            for file in img_dir.iterdir():
                 zipf.write(file, arcname=file.name)
 
-        # ===== KONIEC =====
-        log("===================================")
-        log(f"✅ GOTOWE")
-        log(f"📸 Obrazów: {downloaded}")
-        log(f"📂 Folder: {IMG_DIR}")
-        log(f"🗜 ZIP: {zip_path}")
-
-        open_folder(IMG_DIR)
-
-        messagebox.showinfo(
-            "Gotowe",
-            f"Pobrano {downloaded} obrazów.\n\n"
-            f"Folder:\n{IMG_DIR}\n\n"
-            f"ZIP:\n{zip_path}"
-        )
+        log(job_id, "✅ GOTOWE")
 
     except Exception as e:
-        messagebox.showerror("Błąd krytyczny", str(e))
+        log(job_id, f"❌ Błąd: {e}")
 
 
-# ================= OKNO =================
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
 
-root = tk.Tk()
-root.title("Pobieranie strony (Selenium)")
-root.geometry("700x500")
 
-frame = ttk.Frame(root, padding=10)
-frame.pack(fill="both", expand=True)
+@app.route("/start", methods=["POST"])
+def start():
+    url = request.form["url"]
+    folder = request.form["folder"]
 
-ttk.Label(frame, text="Adres strony:").pack(anchor="w")
-url_entry = ttk.Entry(frame)
-url_entry.pack(fill="x", pady=5)
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = []
 
-ttk.Label(frame, text="Nazwa folderu (Downloads):").pack(anchor="w")
-folder_entry = ttk.Entry(frame)
-folder_entry.pack(fill="x", pady=5)
+    from threading import Thread
+    Thread(target=run_job, args=(job_id, url, folder), daemon=True).start()
 
-ttk.Button(frame, text="START", command=start_job).pack(pady=10)
+    return jsonify({"job_id": job_id})
 
-log_box = tk.Text(frame, height=18)
-log_box.pack(fill="both", expand=True)
 
-root.mainloop()
+@app.route("/logs/<job_id>")
+def logs(job_id):
+    return jsonify(JOBS.get(job_id, []))
+
+
+@app.route("/download/<job_id>")
+def download(job_id):
+    zip_path = Path("/tmp") / job_id / "images.zip"
+    return send_file(zip_path, as_attachment=True)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
