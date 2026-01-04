@@ -1,61 +1,41 @@
 <!DOCTYPE html>
 <html>
-<head>
-<meta charset="utf-8">
-<title>WebPhotos</title>
-</head>
 <body>
-
 <h2>WebPhotos</h2>
 
-<input id="url" placeholder="URL strony"><br><br>
-<input id="folder" placeholder="Nazwa folderu"><br><br>
-
+<input id="url" placeholder="URL"><br>
+<input id="folder" placeholder="Nazwa folderu"><br>
 <button onclick="start()">START</button>
 
 <pre id="log"></pre>
 
 <script>
-let jobId = null;
+let job;
 
-function log(msg) {
-  document.getElementById("log").textContent += msg + "\n";
-}
-
-async function start() {
-  log("➡ Startuję job...");
-
-  const res = await fetch("/start", {
+function start() {
+  fetch("/start", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
-      url: document.getElementById("url").value,
-      folder: document.getElementById("folder").value
+      url: url.value,
+      folder: folder.value
     })
+  }).then(r => r.json()).then(d => {
+    job = d.job_id;
+    poll();
   });
-
-  const data = await res.json();
-  jobId = data.job_id;
-  log("✔ Job ID: " + jobId);
-
-  poll();
 }
 
-async function poll() {
-  const r = await fetch("/status/" + jobId);
-  const data = await r.json();
-
-  document.getElementById("log").textContent = data.logs.join("\n");
-
-  if (!data.done) {
-    setTimeout(poll, 1500);
-  } else {
-    log("\n✅ GOTOWE");
-    log("⬇ Pobierz ZIP:");
-    log(location.origin + "/download/" + jobId);
-  }
+function poll() {
+  fetch("/status/" + job).then(r => r.json()).then(d => {
+    log.textContent = d.logs.join("\n");
+    if (!d.done) setTimeout(poll, 2000);
+    else {
+      log.textContent += "\n\nDOWNLOAD READY";
+      log.innerHTML += `<br><a href="/download/${job}">Pobierz ZIP</a>`;
+    }
+  });
 }
 </script>
-
 </body>
 </html>
