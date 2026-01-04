@@ -153,10 +153,26 @@ def worker(job_id, URL, FOLDER):
         total = len(urls)
         set_log(f"Pobieram obrazy 0/{total}", 65)
 
-        for i, img_url in enumerate(sorted(urls), 1):
-            r = requests.get(img_url, timeout=30)
-            if r.status_code != 200 or len(r.content) < 500:
-                continue
+        for i, img_url in enumerate(image_urls, 1):
+    try:
+        r = requests.get(img_url, timeout=20)
+
+        if r.status_code != 200:
+            log_error(f"❌ Pominięto obraz {i}: HTTP {r.status_code}")
+            continue
+
+        if not r.content or len(r.content) < 1024:
+            log_error(f"❌ Pominięto obraz {i}: plik pusty lub za mały")
+            continue
+
+        file_path = download_dir / f"img_{i}.jpg"
+
+        with open(file_path, "wb") as f:
+            f.write(r.content)
+
+    except Exception as e:
+        log_error(f"❌ Pominięto obraz {i}: błąd zapisu")
+
 
             ext = img_url.split(".")[-1].split("?")[0]
             if ext not in ("jpg", "jpeg", "png", "webp"):
@@ -185,3 +201,4 @@ def worker(job_id, URL, FOLDER):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
