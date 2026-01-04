@@ -1,47 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>WebPhotos</title>
+<meta charset="utf-8">
+<title>WebPhotos</title>
 </head>
 <body>
-<h2>Pobieranie obrazów</h2>
 
-<form id="form">
-    URL: <input name="url"><br><br>
-    Folder: <input name="folder"><br><br>
-    <button type="submit">START</button>
-</form>
+<h2>WebPhotos</h2>
 
-<pre id="logs"></pre>
-<a id="download" style="display:none;">⬇ Pobierz ZIP</a>
+<input id="url" placeholder="URL strony"><br><br>
+<input id="folder" placeholder="Nazwa folderu"><br><br>
+
+<button onclick="start()">START</button>
+
+<pre id="log"></pre>
 
 <script>
 let jobId = null;
 
-document.getElementById("form").onsubmit = async e => {
-    e.preventDefault();
-    const data = new FormData(e.target);
-    const r = await fetch("/start", { method:"POST", body:data });
-    const j = await r.json();
-    jobId = j.job_id;
-    poll();
-};
+function log(msg) {
+  document.getElementById("log").textContent += msg + "\n";
+}
+
+async function start() {
+  log("➡ Startuję job...");
+
+  const res = await fetch("/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      url: document.getElementById("url").value,
+      folder: document.getElementById("folder").value
+    })
+  });
+
+  const data = await res.json();
+  jobId = data.job_id;
+  log("✔ Job ID: " + jobId);
+
+  poll();
+}
 
 async function poll() {
-    if (!jobId) return;
-    const r = await fetch("/logs/" + jobId);
-    const logs = await r.json();
-    document.getElementById("logs").textContent = logs.join("\n");
+  const r = await fetch("/status/" + jobId);
+  const data = await r.json();
 
-    if (logs.includes("✅ GOTOWE")) {
-        const a = document.getElementById("download");
-        a.href = "/download/" + jobId;
-        a.style.display = "block";
-        return;
-    }
-    setTimeout(poll, 2000);
+  document.getElementById("log").textContent = data.logs.join("\n");
+
+  if (!data.done) {
+    setTimeout(poll, 1500);
+  } else {
+    log("\n✅ GOTOWE");
+    log("⬇ Pobierz ZIP:");
+    log(location.origin + "/download/" + jobId);
+  }
 }
 </script>
+
 </body>
 </html>
