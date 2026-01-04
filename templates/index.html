@@ -51,10 +51,15 @@ input, button {
     font-family: monospace;
 }
 
-.sublog {
-    margin-top: 6px;
+.errors {
+    margin-top: 8px;
+    max-height: 120px;
+    overflow-y: auto;
     font-family: monospace;
+    font-size: 13px;
     color: #d32f2f;
+    border-top: 1px solid #ddd;
+    padding-top: 5px;
 }
 </style>
 </head>
@@ -74,7 +79,7 @@ input, button {
 </div>
 
 <div class="log" id="log"></div>
-<div class="sublog" id="sublog"></div>
+<div class="errors" id="errors"></div>
 </div>
 
 <script>
@@ -102,19 +107,22 @@ function poll(){
     if(!d.done && !d.error){
       dots = (dots+1)%4
       log.innerText = d.log + ".".repeat(dots)
-      sublog.innerText = d.sublog || ""
+
+      errors.innerHTML = d.errors
+        .slice(-10)
+        .map(e => `<div>${e}</div>`)
+        .join("")
+
       setTimeout(poll, 800)
     }
 
     if(d.done){
       log.innerText = d.log
-      sublog.innerText = d.sublog || ""
       zipBtn.style.display="block"
     }
 
     if(d.error){
       log.innerText = "BŁĄD!"
-      sublog.innerText = ""
     }
   })
 }
