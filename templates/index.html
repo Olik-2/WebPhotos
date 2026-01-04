@@ -1,88 +1,116 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>WebPhotos</title>
+<title>WebPages</title>
+
 <style>
 body {
+    margin: 0;
     font-family: Arial;
-    background: #111;
-    color: #eee;
-    padding: 30px;
+    background: #f5f5f5;
 }
+
+.overlay {
+    max-width: 600px;
+    margin: 40px auto;
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+}
+
+h1 {
+    text-align: center;
+    color: black;
+}
+
 input, button {
-    padding: 10px;
-    margin: 5px 0;
     width: 100%;
+    padding: 10px;
+    margin-top: 10px;
 }
-button {
-    background: #3fa9f5;
-    border: none;
-    cursor: pointer;
+
+.progress {
+    width: 100%;
+    height: 18px;
+    background: #ddd;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 15px;
 }
-#logs {
-    margin-top: 20px;
-    background: #000;
-    padding: 15px;
-    height: 300px;
-    overflow-y: auto;
-    white-space: pre-line;
+
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #4caf50;
+    transition: width .3s;
 }
-.hidden {
-    display: none;
+
+.log {
+    margin-top: 15px;
+    font-family: monospace;
 }
 </style>
 </head>
+
 <body>
+<div class="overlay">
+<h1>WebPages</h1>
 
-<h2>WebPhotos</h2>
-
-<input id="url" placeholder="Adres strony">
+<input id="url" placeholder="URL strony">
 <input id="folder" placeholder="Nazwa folderu">
+
 <button onclick="start()">START</button>
+<button id="zipBtn" style="display:none" onclick="download()">Pobierz ZIP</button>
 
-<button id="download" class="hidden">Pobierz ZIP</button>
+<div class="progress">
+  <div class="progress-bar" id="bar"></div>
+</div>
 
-<div id="logs"></div>
+<div class="log" id="log"></div>
+</div>
 
 <script>
-let jobId = null;
-let timer = null;
+let job = null
+let dots = 0
 
-function start() {
-    document.getElementById("logs").textContent = "";
-    document.getElementById("download").classList.add("hidden");
-
-    fetch("/start", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            url: document.getElementById("url").value,
-            folder: document.getElementById("folder").value
-        })
+function start(){
+  fetch("/start", {
+    method:"POST",
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      url: url.value,
+      folder: folder.value
     })
-    .then(r => r.json())
-    .then(d => {
-        jobId = d.job_id;
-        timer = setInterval(checkStatus, 1500);
-    });
+  }).then(r=>r.json()).then(d=>{
+    job = d.job_id
+    poll()
+  })
 }
 
-function checkStatus() {
-    fetch("/status/" + jobId)
-    .then(r => r.json())
-    .then(d => {
-        document.getElementById("logs").textContent =
-            d.logs.join("\n");
+function poll(){
+  fetch("/status/"+job).then(r=>r.json()).then(d=>{
+    bar.style.width = d.progress+"%"
 
-        if (d.done) {
-            clearInterval(timer);
-            document.getElementById("download").classList.remove("hidden");
-            document.getElementById("download").onclick = () => {
-                window.location = "/download/" + jobId;
-            };
-        }
-    });
+    if(!d.done && !d.error){
+      dots = (dots+1)%4
+      log.innerText = d.log + ".".repeat(dots)
+      setTimeout(poll, 800)
+    }
+
+    if(d.done){
+      log.innerText = d.log
+      zipBtn.style.display="block"
+    }
+
+    if(d.error){
+      log.innerText = "BŁĄD!"
+    }
+  })
+}
+
+function download(){
+  window.location="/download/"+job
 }
 </script>
 
