@@ -73,6 +73,12 @@ def download(job_id):
 
 # ======================= LOGIKA =======================
 
+def log_error(message):
+    logs.append({
+        "type": "error",
+        "message": message
+    })
+
 def worker(job_id, URL, FOLDER):
     try:
         def set_log(msg, progress=None):
@@ -201,4 +207,5 @@ def worker(job_id, URL, FOLDER):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
 
