@@ -1,34 +1,47 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Web Scraper</title>
+    <meta charset="utf-8">
+    <title>WebPhotos</title>
 </head>
 <body>
-<h2>Web Scraper</h2>
+<h2>Pobieranie obrazów</h2>
 
-<form method="post" action="/start">
-    <input name="url" placeholder="URL strony" required><br><br>
-    <input name="folder" placeholder="Nazwa folderu" required><br><br>
+<form id="form">
+    URL: <input name="url"><br><br>
+    Folder: <input name="folder"><br><br>
     <button type="submit">START</button>
 </form>
 
-<pre id="log"></pre>
+<pre id="logs"></pre>
+<a id="download" style="display:none;">⬇ Pobierz ZIP</a>
 
 <script>
-fetch("/logs")
-.then(r => r.body.getReader())
-.then(reader => {
-    const decoder = new TextDecoder();
-    function read() {
-        reader.read().then(({done, value}) => {
-            if (done) return;
-            document.getElementById("log").textContent += decoder.decode(value);
-            read();
-        });
+let jobId = null;
+
+document.getElementById("form").onsubmit = async e => {
+    e.preventDefault();
+    const data = new FormData(e.target);
+    const r = await fetch("/start", { method:"POST", body:data });
+    const j = await r.json();
+    jobId = j.job_id;
+    poll();
+};
+
+async function poll() {
+    if (!jobId) return;
+    const r = await fetch("/logs/" + jobId);
+    const logs = await r.json();
+    document.getElementById("logs").textContent = logs.join("\n");
+
+    if (logs.includes("✅ GOTOWE")) {
+        const a = document.getElementById("download");
+        a.href = "/download/" + jobId;
+        a.style.display = "block";
+        return;
     }
-    read();
-});
+    setTimeout(poll, 2000);
+}
 </script>
 </body>
 </html>
