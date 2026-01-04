@@ -50,6 +50,12 @@ input, button {
     margin-top: 15px;
     font-family: monospace;
 }
+
+.sublog {
+    margin-top: 6px;
+    font-family: monospace;
+    color: #d32f2f;
+}
 </style>
 </head>
 
@@ -68,6 +74,7 @@ input, button {
 </div>
 
 <div class="log" id="log"></div>
+<div class="sublog" id="sublog"></div>
 </div>
 
 <script>
@@ -95,16 +102,19 @@ function poll(){
     if(!d.done && !d.error){
       dots = (dots+1)%4
       log.innerText = d.log + ".".repeat(dots)
+      sublog.innerText = d.sublog || ""
       setTimeout(poll, 800)
     }
 
     if(d.done){
       log.innerText = d.log
+      sublog.innerText = d.sublog || ""
       zipBtn.style.display="block"
     }
 
     if(d.error){
       log.innerText = "BŁĄD!"
+      sublog.innerText = ""
     }
   })
 }
