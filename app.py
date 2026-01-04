@@ -45,6 +45,7 @@ def start():
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "log": "Rozpoczynam pracę",
+        "sublog": "",
         "progress": 0,
         "done": False,
         "zip": None,
@@ -80,6 +81,9 @@ def worker(job_id, URL, FOLDER):
             if progress is not None:
                 jobs[job_id]["progress"] = progress
 
+        def set_sublog(msg):
+            jobs[job_id]["sublog"] = msg
+
         set_log("Uruchamiam Chrome", 5)
 
         img_dir = DOWNLOADS / FOLDER
@@ -97,7 +101,7 @@ def worker(job_id, URL, FOLDER):
         set_log("Otwieram stronę", 10)
         driver.get(URL)
 
-        # FILTER (jeśli istnieje)
+        # FILTER
         try:
             set_log("Klikam Filter", 20)
             filter_btn = wait.until(
@@ -110,7 +114,7 @@ def worker(job_id, URL, FOLDER):
         except:
             pass
 
-        # IMAGES (jeśli istnieje)
+        # IMAGES
         try:
             set_log("Klikam Images", 30)
             images_btn = wait.until(
@@ -151,20 +155,19 @@ def worker(job_id, URL, FOLDER):
                 urls.add(urljoin(URL, img["srcset"].split(",")[-1].split()[0]))
 
         total = len(urls)
-        set_log(f"Pobieram obrazy 0/{total}", 65)
-
         downloaded = 0
+        set_log(f"Pobieram obrazy {downloaded}/{total}", 65)
 
         for i, img_url in enumerate(sorted(urls), 1):
             try:
                 r = requests.get(img_url, timeout=30)
 
                 if r.status_code != 200:
-                    set_log(f"⚠ Pominięto obraz {i}/{total} (status {r.status_code})")
+                    set_sublog(f"⚠ Pominięto obraz {i}/{total} (status {r.status_code})")
                     continue
 
                 if len(r.content) < 500:
-                    set_log(f"⚠ Pominięto obraz {i}/{total} (plik uszkodzony / za mały)")
+                    set_sublog(f"⚠ Pominięto obraz {i}/{total} (plik uszkodzony / za mały)")
                     continue
 
                 ext = img_url.split(".")[-1].split("?")[0].lower()
@@ -181,7 +184,7 @@ def worker(job_id, URL, FOLDER):
                 )
 
             except Exception:
-                set_log(f"⚠ Błąd pobierania obrazu {i}/{total}")
+                set_sublog(f"⚠ Błąd pobierania obrazu {i}/{total}")
                 continue
 
         set_log("Tworzę ZIP", 95)
