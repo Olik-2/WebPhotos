@@ -27,11 +27,17 @@ DOWNLOAD_DIR.mkdir(exist_ok=True)
 jobs = {}
 
 
-def log(job_id, msg, progress=None):
-    print(f"[{job_id}] {msg}", flush=True)
+def log(job_id, msg, progress=None, working=True):
+    dots = ["", ".", "..", "..."]
+    if working:
+        i = jobs[job_id]["dot"]
+        msg = msg + " " + dots[i]
+        jobs[job_id]["dot"] = (i + 1) % 4
+
     jobs[job_id]["logs"].append(msg)
     if progress is not None:
         jobs[job_id]["progress"] = progress
+    print(f"[{job_id}] {msg}", flush=True)
 
 
 @app.route("/")
@@ -45,10 +51,12 @@ def start():
     job_id = str(time.time())
 
     jobs[job_id] = {
-        "logs": ["Startuję job…"],
+        "logs": ["Startuję job"],
         "progress": 0,
         "done": False,
-        "zip": None
+        "error": False,
+        "zip": None,
+        "dot": 0
     }
 
     threading.Thread(
@@ -72,12 +80,10 @@ def download(job_id):
 
 def run_selenium(job_id, URL, folder_name):
     try:
-        log(job_id, "➡ Wejście do wątku", 2)
+        log(job_id, "Wejście do procesu", 2)
 
         img_dir = DOWNLOAD_DIR / folder_name
         img_dir.mkdir(exist_ok=True)
-
-        log(job_id, "➡ Konfiguruję Chrome", 5)
 
         options = Options()
         options.add_argument("--headless=new")
@@ -87,46 +93,48 @@ def run_selenium(job_id, URL, folder_name):
 
         service = Service("/usr/bin/chromedriver")
 
-        log(job_id, "➡ Uruchamiam Chrome", 10)
+        log(job_id, "Uruchamiam Chrome", 5)
         driver = webdriver.Chrome(service=service, options=options)
         wait = WebDriverWait(driver, 30)
 
-        log(job_id, "✔ Chrome uruchomiony", 15)
         driver.get(URL)
-        log(job_id, "✔ Strona otwarta", 20)
+        log(job_id, "Strona otwarta", 15)
 
-        # FILTER
+        # FILTER (IF ISTNIEJE)
         try:
-            btn = wait.until(
+            filter_btn = wait.until(
                 EC.element_to_be_clickable(
                     (By.XPATH, "//button[.//text()[contains(., 'Filter')]]")
                 )
             )
-            btn.click()
-            log(job_id, "✔ Kliknięto Filter", 30)
+            filter_btn.click()
+            log(job_id, "Kliknięto Filter", 25)
             time.sleep(2)
         except:
-            log(job_id, "⚠ Filter pominięty", 30)
+            log(job_id, "Filter pominięty", 25, working=False)
 
-        # IMAGES
-        images = wait.until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//*[contains(text(),'Images')]")
+        # IMAGES (IF ISTNIEJE)
+        try:
+            images_btn = wait.until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//*[contains(text(),'Images')]")
+                )
             )
-        )
-        driver.execute_script("arguments[0].click();", images)
-        log(job_id, "✔ Kliknięto Images", 40)
-        time.sleep(3)
+            driver.execute_script("arguments[0].click();", images_btn)
+            log(job_id, "Kliknięto Images", 35)
+            time.sleep(3)
+        except:
+            log(job_id, "Images pominięty", 35, working=False)
 
         # SCROLL
         for i in range(12):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            log(job_id, f"⬇ Scroll {i+1}/12", 40 + i)
+            log(job_id, f"Scroll {i+1}/12", 35 + i)
             time.sleep(2)
 
         html = driver.page_source
         driver.quit()
-        log(job_id, "✔ HTML pobrany", 55)
+        log(job_id, "HTML pobrany", 55)
 
         html = re.sub(
             r"https://cdn\.ourdream\.ai/cdn-cgi/image/width=\d+/",
@@ -145,7 +153,7 @@ def run_selenium(job_id, URL, folder_name):
             if img.get("srcset"):
                 urls.add(urljoin(URL, img["srcset"].split(",")[-1].split()[0]))
 
-        log(job_id, f"➡ Znaleziono {len(urls)} obrazów", 65)
+        log(job_id, f"Znaleziono {len(urls)} obrazów", 65)
 
         for i, u in enumerate(sorted(urls), 1):
             try:
@@ -166,7 +174,9 @@ def run_selenium(job_id, URL, folder_name):
         jobs[job_id]["zip"] = str(zip_path)
         jobs[job_id]["done"] = True
         jobs[job_id]["progress"] = 100
-        log(job_id, "✅ GOTOWE")
+        log(job_id, "GOTOWE", working=False)
 
     except Exception as e:
-        log(job_id, f"❌ BŁĄD: {e}")
+        jobs[job_id]["error"] = True
+        log(job_id, "BŁĄD!", working=False)
+        log(job_id, str(e), working=False)
