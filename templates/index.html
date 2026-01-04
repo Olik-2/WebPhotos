@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <body>
-<h2>WebPhotos</h2>
+<h3>WebImages</h3>
 
-<input id="url" placeholder="URL"><br>
-<input id="folder" placeholder="Nazwa folderu"><br>
+<input id="url" placeholder="URL"><br><br>
+<input id="folder" placeholder="Nazwa folderu"><br><br>
 <button onclick="start()">START</button>
 
 <pre id="log"></pre>
@@ -20,21 +20,22 @@ function start() {
       url: url.value,
       folder: folder.value
     })
-  }).then(r => r.json()).then(d => {
+  })
+  .then(r => r.json())
+  .then(d => {
     job = d.job_id;
     poll();
   });
 }
 
 function poll() {
-  fetch("/status/" + job).then(r => r.json()).then(d => {
-    log.textContent = d.logs.join("\n");
-    if (!d.done) setTimeout(poll, 2000);
-    else {
-      log.textContent += "\n\nDOWNLOAD READY";
-      log.innerHTML += `<br><a href="/download/${job}">Pobierz ZIP</a>`;
-    }
-  });
+  fetch("/status/" + job)
+    .then(r => r.json())
+    .then(d => {
+      log.textContent = d.logs.join("\n");
+      if (!d.done) setTimeout(poll, 2000);
+      else log.innerHTML += "\n\n<a href='/download/" + job + "'>POBIERZ ZIP</a>";
+    });
 }
 </script>
 </body>
