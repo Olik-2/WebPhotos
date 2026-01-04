@@ -108,10 +108,15 @@ function poll(){
       dots = (dots+1)%4
       log.innerText = d.log + ".".repeat(dots)
 
-      errors.innerHTML = d.errors
-        .slice(-10)
-        .map(e => `<div>${e}</div>`)
-        .join("")
+      if (d.errors && d.errors.length > 0) {
+  errors.innerHTML = d.errors
+    .slice(-10)
+    .map(e => `<div>${e}</div>`)
+    .join("")
+} else {
+  errors.innerHTML = ""
+}
+
 
       setTimeout(poll, 800)
     }
@@ -134,3 +139,4 @@ function download(){
 
 </body>
 </html>
+
