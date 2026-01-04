@@ -1,11 +1,27 @@
 <!DOCTYPE html>
 <html>
+<head>
+<style>
+#bar {
+  width: 100%;
+  background: #ddd;
+}
+#bar div {
+  width: 0%;
+  height: 20px;
+  background: #4caf50;
+}
+</style>
+</head>
 <body>
+
 <h3>WebImages</h3>
 
 <input id="url" placeholder="URL"><br><br>
 <input id="folder" placeholder="Nazwa folderu"><br><br>
 <button onclick="start()">START</button>
+
+<div id="bar"><div></div></div>
 
 <pre id="log"></pre>
 
@@ -33,10 +49,21 @@ function poll() {
     .then(r => r.json())
     .then(d => {
       log.textContent = d.logs.join("\n");
-      if (!d.done) setTimeout(poll, 2000);
-      else log.innerHTML += "\n\n<a href='/download/" + job + "'>POBIERZ ZIP</a>";
+      document.querySelector("#bar div").style.width = d.progress + "%";
+
+      if (d.error) {
+        log.textContent += "\n\n❌ BŁĄD!";
+        return;
+      }
+
+      if (!d.done) {
+        setTimeout(poll, 2000);
+      } else {
+        log.innerHTML += "\n\n<a href='/download/" + job + "'>POBIERZ ZIP</a>";
+      }
     });
 }
 </script>
+
 </body>
 </html>
