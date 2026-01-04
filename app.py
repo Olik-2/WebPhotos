@@ -1,12 +1,13 @@
 import os
-import time
-import re
 import threading
+import time
 import zipfile
+import uuid
+import re
+import requests
 from pathlib import Path
 from urllib.parse import urljoin
 
-import requests
 from flask import Flask, render_template, request, jsonify, send_file
 
 from selenium import webdriver
@@ -17,44 +18,50 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from bs4 import BeautifulSoup
 
+# ===================== APP =====================
+
 app = Flask(__name__)
 
 BASE_DIR = Path(__file__).parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
+# ===================== GLOBAL STATE =====================
 
-# =========================
-# GLOBALNY STAN JOBA
-# =========================
-job_state = {
-    "status": "idle",
-    "logs": [],
+state = {
+    "running": False,
+    "log": "",
     "progress": 0,
-    "zip_path": None
+    "zip_path": None,
+    "error": None,
 }
 
+# ===================== HELPERS =====================
 
-def add_log(msg):
-    job_state["logs"].append(msg)
-    print(msg)
+def set_log(msg):
+    state["log"] = msg
 
+def set_progress(p):
+    state["progress"] = p
 
-# =========================
-# SELENIUM WORKER
-# =========================
+def fail(msg):
+    state["error"] = msg
+    state["running"] = False
+
+# ===================== SELENIUM JOB =====================
+
 def run_job(url, folder_name):
     try:
-        job_state["status"] = "running"
-        job_state["logs"].clear()
-        job_state["progress"] = 0
-        job_state["zip_path"] = None
+        state["running"] = True
+        state["error"] = None
+        state["zip_path"] = None
+        set_progress(0)
 
-        add_log("▶ Start Selenium")
+        job_id = str(uuid.uuid4())
+        img_dir = DOWNLOAD_DIR / job_id
+        img_dir.mkdir(exist_ok=True)
 
-        img_dir = DOWNLOAD_DIR / folder_name
-        img_dir.mkdir(parents=True, exist_ok=True)
-
+        set_log("Uruchamiam Chrome")
         options = Options()
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
@@ -65,9 +72,10 @@ def run_job(url, folder_name):
         wait = WebDriverWait(driver, 30)
 
         driver.get(url)
-        add_log("✔ Strona otwarta")
+        set_log("Strona otwarta")
+        time.sleep(2)
 
-        # FILTER (opcjonalnie)
+        # FILTER (jeśli istnieje)
         try:
             filter_btn = wait.until(
                 EC.element_to_be_clickable(
@@ -75,72 +83,65 @@ def run_job(url, folder_name):
                 )
             )
             filter_btn.click()
-            time.sleep(1)
-            add_log("✔ Kliknięto Filter")
+            set_log("Kliknięto Filter")
+            time.sleep(2)
         except Exception:
-            add_log("ℹ️ Brak Filter — pomijam")
+            set_log("Brak Filter – pomijam")
 
-        # IMAGES
+        # IMAGES (jeśli istnieje)
         try:
             images_btn = wait.until(
-                EC.element_to_be_clickable(
+                EC.presence_of_element_located(
                     (By.XPATH, "//*[contains(text(),'Images')]")
                 )
             )
             driver.execute_script("arguments[0].click();", images_btn)
+            set_log("Kliknięto Images")
             time.sleep(2)
-            add_log("✔ Kliknięto Images")
         except Exception:
-            add_log("❌ Nie znaleziono Images")
-            driver.quit()
-            job_state["status"] = "error"
-            return
+            set_log("Brak Images – pomijam")
 
         # SCROLL
-        for _ in range(12):
+        set_log("Scrollowanie strony")
+        for _ in range(10):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)
+            time.sleep(2)
 
         html = driver.page_source
         driver.quit()
 
-        # USUWANIE cdn-cgi
+        # Oczyszczanie CDN
         html = re.sub(
             r"https://cdn\.ourdream\.ai/cdn-cgi/image/width=\d+/",
             "",
             html
         )
 
-        add_log("✔ HTML oczyszczony")
-
-        # PARSOWANIE
         soup = BeautifulSoup(html, "html.parser")
         image_urls = set()
 
         for img in soup.find_all("img"):
             if img.get("data-src"):
                 image_urls.add(urljoin(url, img["data-src"]))
-
             if img.get("src") and not img["src"].startswith("data:"):
                 image_urls.add(urljoin(url, img["src"]))
-
             if img.get("srcset"):
-                try:
-                    largest = img["srcset"].split(",")[-1].split()[0]
-                    image_urls.add(urljoin(url, largest))
-                except Exception:
-                    pass
+                largest = img["srcset"].split(",")[-1].split()[0]
+                image_urls.add(urljoin(url, largest))
 
         total = len(image_urls)
-        add_log(f"📸 Znaleziono {total} obrazów")
+        if total == 0:
+            fail("Nie znaleziono obrazów")
+            return
 
+        set_log(f"Znaleziono {total} obrazów")
         downloaded = 0
 
         for idx, img_url in enumerate(sorted(image_urls), 1):
             try:
                 r = requests.get(img_url, timeout=20)
-                if r.status_code != 200 or not r.content:
-                    add_log(f"⚠️ Pominięto obraz {idx} (błąd HTTP)")
+                if r.status_code != 200 or len(r.content) < 1024:
+                    set_log(f"Pominięto uszkodzony obraz {idx}/{total}")
                     continue
 
                 ext = img_url.split(".")[-1].split("?")[0].lower()
@@ -151,68 +152,61 @@ def run_job(url, folder_name):
                 with open(file_path, "wb") as f:
                     f.write(r.content)
 
-                if file_path.stat().st_size == 0:
-                    add_log(f"⚠️ Pominięto obraz {idx} (pusty plik)")
-                    file_path.unlink(missing_ok=True)
-                    continue
-
                 downloaded += 1
-                job_state["progress"] = int((idx / total) * 100)
-                add_log(f"✔ Pobrano {downloaded}/{total}")
+                set_log(f"Pobrano {downloaded}/{total}")
+                set_progress(int((idx / total) * 100))
 
             except Exception:
-                add_log(f"⚠️ Pominięto obraz {idx} (wyjątek)")
-                pass
+                set_log(f"Błąd pobierania {idx}/{total}")
 
         # ZIP
         zip_path = DOWNLOAD_DIR / f"{folder_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             for file in img_dir.iterdir():
-                zipf.write(file, arcname=file.name)
+                zipf.write(file, file.name)
 
-        job_state["zip_path"] = str(zip_path)
-        job_state["status"] = "done"
-        add_log("✅ Zakończono")
+        state["zip_path"] = zip_path.name
+        set_log("Zakończono – ZIP gotowy")
+        set_progress(100)
 
     except Exception as e:
-        job_state["status"] = "error"
-        add_log(f"❌ BŁĄD: {e}")
+        fail(str(e))
 
+    finally:
+        state["running"] = False
 
-# =========================
-# ROUTES
-# =========================
+# ===================== ROUTES =====================
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
-
 @app.route("/start", methods=["POST"])
 def start():
+    if state["running"]:
+        return jsonify({"status": "busy"})
+
     data = request.json
     url = data.get("url")
-    folder = data.get("folder")
+    folder = data.get("folder", "images")
 
-    threading.Thread(
-        target=run_job,
-        args=(url, folder),
-        daemon=True
-    ).start()
-
-    return jsonify({"ok": True})
-
+    threading.Thread(target=run_job, args=(url, folder), daemon=True).start()
+    return jsonify({"status": "started"})
 
 @app.route("/status")
 def status():
-    return jsonify(job_state)
-
+    return jsonify(state)
 
 @app.route("/download")
 def download():
-    if job_state["zip_path"]:
-        return send_file(job_state["zip_path"], as_attachment=True)
-    return "Brak pliku", 404
+    if not state["zip_path"]:
+        return "Brak pliku", 404
+    return send_file(
+        DOWNLOAD_DIR / state["zip_path"],
+        as_attachment=True
+    )
 
+# ===================== MAIN =====================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(host="0.0.0.0", port=10000)
