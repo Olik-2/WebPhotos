@@ -13,6 +13,8 @@ from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin
 
+os.makedirs("downloads", exist_ok=True)
+
 app = Flask(__name__)
 logs = []
 
@@ -138,3 +140,4 @@ def run_job(URL, folder_name):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
